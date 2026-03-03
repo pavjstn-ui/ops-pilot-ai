@@ -1,105 +1,125 @@
 # OpsPilot AI
 
-OpsPilot AI is a single-tenant knowledge assistant for internal operations docs. It combines PDF ingestion, vector indexing, and citation-backed answers over a local FastAPI service.
+OpsPilot AI is a FastAPI-based RAG service for ingesting PDF documents into ChromaDB and answering semantic queries with source citations. It is designed for local, single-tenant usage with configurable embedding providers.
 
-The project supports deterministic document/chunk identifiers during ingestion and a configurable embedding backend for retrieval.
+## What It Does
 
-## Status
+- Serves a FastAPI API with health, ingestion, and semantic query endpoints
+- Ingests PDF files, splits them into chunks, generates embeddings, and stores vectors in ChromaDB
+- Persists ingestion metadata to a registry (`data/index/doc_registry.jsonl`)
+- Retrieves relevant chunks for a query and returns an answer with source excerpts
+- Serves a lightweight UI at `/ui/index.html`
 
-Active prototype for local/dev deployments.
+## Tech Stack
 
-## Features
+- Python
+- FastAPI
+- ChromaDB
+- OpenAI SDK (chat + embeddings)
+- FastEmbed (local embeddings option)
+- Optional Ollama embeddings provider
+- pypdf for PDF parsing
 
-- FastAPI service with `/health`, `/ingest`, and `/query` endpoints
-- PDF-only ingestion pipeline with chunking and Chroma indexing
-- Citation-backed query responses with returned source chunks
-- Configurable embedding provider (`ollama`, `openai`, `local`, `chroma`)
-- Simple web UI served from `/ui/index.html`
-- Deterministic IDs for documents and chunks during indexing
-
-## Architecture
-
-```text
-PDF -> /ingest -> chunker + embedder -> Chroma
-Query -> /query -> retriever(top-k) -> LLM answer + sources
-```
-
-## Basic Structure
-
-- `app/`: API routes, RAG components, settings, and UI
-- `tools/`: memory bus and pipeline helper scripts
-- `scripts/`: end-to-end demo script
-- `data/`: index/registry and local vector data
-- `memory_bus/`: local event/state/report artifacts
-
-## Quickstart
-
-### Prerequisites
-
-- Python 3.10+
-- `pip`
-- Optional: Ollama running locally if `EMBEDDING_PROVIDER=ollama`
-- Optional: OpenAI API key if `EMBEDDING_PROVIDER=openai` or using `/query`
-
-### Setup
+## Quick Start
 
 ```bash
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-### Run
-
-```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Open `http://127.0.0.1:8000/ui/index.html`.
+API root redirects to UI: `http://127.0.0.1:8000/`
 
-### Ingestion and Query
+## API Endpoints
+
+### `GET /health`
+
+Health check.
+
+Example response:
+
+```json
+{"status": "ok"}
+```
+
+### `POST /ingest`
+
+Uploads and ingests a PDF file (multipart form-data).
+
+Request:
+
+- Content-Type: `multipart/form-data`
+- Field: `file` (PDF only)
+
+Example:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/ingest \
+curl -X POST "http://127.0.0.1:8000/ingest" \
   -F "file=@/absolute/path/to/document.pdf"
-
-curl -X POST http://127.0.0.1:8000/query \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"Summarize key controls.","top_k":5}'
 ```
 
-### Demo Script
+Successful response (`201`):
+
+```json
+{
+  "doc_id": "...",
+  "filename": "document.pdf",
+  "page_count": 10,
+  "chunk_count": 42,
+  "chunk_ids": ["..."],
+  "collection": "ops_pilot_docs",
+  "registry_path": "data/index/doc_registry.jsonl"
+}
+```
+
+### `POST /query`
+
+Runs semantic retrieval + answer generation.
+
+Request JSON:
+
+- `query` (string, required)
+- `top_k` (integer, optional, 1-20, default 5)
+
+Example:
 
 ```bash
-python scripts/demo_test.py /absolute/path/to/document.pdf
+curl -X POST "http://127.0.0.1:8000/query" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"Summarize the key controls.","top_k":5}'
 ```
 
-## Configuration
+Successful response (`200`):
 
-Set these in `.env` (see `.env.example`):
+```json
+{
+  "answer": "...",
+  "sources": [
+    {
+      "doc_id": "...",
+      "chunk_id": "...",
+      "source": "document.pdf#page1",
+      "text": "..."
+    }
+  ]
+}
+```
 
-- `EMBEDDING_PROVIDER`
-- `OPENAI_API_KEY`
-- `OPENAI_EMBEDDING_MODEL`
-- `OPENAI_CHAT_MODEL`
-- `OLLAMA_BASE_URL`
-- `OLLAMA_EMBEDDING_MODEL`
-- `CHROMA_COLLECTION`
-- `CHUNK_SIZE`
-- `CHUNK_OVERLAP`
-- `EMBED_BATCH_SIZE`
-- `REGISTRY_PATH`
+## Project Status
 
-## Tests and Lint
+Active development.
 
-No dedicated test/lint configuration is currently defined. For a basic integration check, use `scripts/demo_test.py` against a running local API.
+## Basic Project Layout
 
-## Roadmap
-
-- Add automated tests for API routes and retrieval quality
-- Add deployment profile for reproducible single-tenant hosting
-- Add evaluation harness for citation and answer quality
+- `app/` - FastAPI app, API routes, RAG components, UI
+- `data/` - Chroma data and ingestion registry
+- `docker/` - container files
+- `scripts/` - utility scripts (including demo/test helper)
+- `tools/` - project tooling helpers
+- `memory_bus/` - local memory bus utilities and state files
+- `requirements.txt` - Python dependencies
 
 ## License
 
-MIT License. See `LICENSE`.
+This project is licensed under the terms in [LICENSE](LICENSE).
